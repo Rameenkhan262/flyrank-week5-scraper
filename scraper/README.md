@@ -43,3 +43,22 @@ No unrelated websites or targets will be accessed.
 The target's `robots.txt` URL returned a 404 response.
 
 ![robots.txt 404](evidence/robots-404.png)
+
+
+## Stage 1 – Fetch and Cache
+
+The scraper fetches the first catalogue page from:
+
+https://books.toscrape.com/catalogue/page-1.html
+
+The request uses a descriptive User-Agent and checks the HTTP response status before processing the response.
+
+The returned HTML is cached locally as:
+
+`cache/page-1.html`
+
+The cached file is excluded from Git using `.gitignore`.
+
+### Evidence
+
+![Stage 1 Fetch](evidence/stage1-fetch.png)
