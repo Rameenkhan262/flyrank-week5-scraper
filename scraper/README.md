@@ -42,7 +42,7 @@ No unrelated websites or targets will be accessed.
 
 The target's `robots.txt` URL returned a 404 response.
 
-![robots.txt 404](evidence/robots-404.png)
+![robots.txt 404](evidence/robots-4O4.png)
 
 
 ## Stage 1 – Fetch and Cache
