@@ -42,7 +42,7 @@ No unrelated websites or targets will be accessed.
 
 The target's `robots.txt` URL returned a 404 response.
 
-![robots.txt 404](evidence/robots-4O4.png)
+![robots.txt 404](evidence/robots-404.png)
 
 
 ## Stage 1 – Fetch and Cache
@@ -62,3 +62,20 @@ The cached file is excluded from Git using `.gitignore`.
 ### Evidence
 
 ![Stage 1 Fetch](evidence/stage1-fetch.png)
+
+## Stage 2 – Catalogue Discovery
+
+The scraper parses the catalogue pages using Cheerio and follows the
+website's own "Next" pagination link.
+
+Book links are discovered from the first three catalogue pages.
+Relative links are converted to absolute URLs using the `URL` API.
+
+Duplicate URLs are removed before continuing.
+
+### Results
+
+```text
+catalogue_pages=3
+discovered=60
+unique_urls=60
