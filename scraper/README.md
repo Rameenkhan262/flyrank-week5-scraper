@@ -79,3 +79,33 @@ Duplicate URLs are removed before continuing.
 catalogue_pages=3
 discovered=60
 unique_urls=60
+
+
+## Stage 3 – Extract Book Details
+
+The scraper visits each of the 60 unique book detail pages discovered
+during Stage 2.
+
+Each detail page is cached locally and parsed using Cheerio.
+
+The raw record contains:
+
+- title
+- product_url
+- price_text
+- availability_text
+- rating_text
+- description
+- source_page
+- fetched_at
+- upc
+
+The scraper successfully extracted all 60 book detail pages.
+
+### Results
+
+![Stage 3](evidence/stage3-deatails_1.png)
+
+![Stage 3](evidence/stage3-deatails_2.png)
+
+![Stage 3](evidence/stage3-deatails_3.png)

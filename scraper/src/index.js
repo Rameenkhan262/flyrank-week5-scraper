@@ -3,9 +3,11 @@ const path = require("path");
 const cheerio = require("cheerio");
 
 const BASE_URL = "https://books.toscrape.com/";
-const FIRST_PAGE_URL = "https://books.toscrape.com/catalogue/page-1.html";
+const FIRST_PAGE_URL =
+    "https://books.toscrape.com/catalogue/page-1.html";
 
 const CACHE_DIR = path.join(__dirname, "../cache");
+const DETAIL_CACHE_DIR = path.join(CACHE_DIR, "details");
 
 const USER_AGENT = "FlyRankInternship-A9/1.0";
 const DELAY_MS = 500;
@@ -14,20 +16,29 @@ function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-function cacheFileForPage(pageNumber) {
+function catalogueCacheFile(pageNumber) {
     return path.join(
         CACHE_DIR,
         `catalogue-page-${pageNumber}.html`
     );
 }
 
-async function readCachedPage(pageNumber) {
-    const file = cacheFileForPage(pageNumber);
+function detailCacheFile(index) {
+    return path.join(
+        DETAIL_CACHE_DIR,
+        `book-${String(index).padStart(3, "0")}.html`
+    );
+}
+
+async function readCachedCataloguePage(pageNumber) {
+    const file = catalogueCacheFile(pageNumber);
 
     try {
         const html = await fs.readFile(file, "utf8");
 
-        console.log(`CACHE HIT: catalogue-page-${pageNumber}.html`);
+        console.log(
+            `CACHE HIT: catalogue-page-${pageNumber}.html`
+        );
 
         return html;
     } catch {
@@ -35,21 +46,30 @@ async function readCachedPage(pageNumber) {
     }
 }
 
-// Check whether a page is cached without printing CACHE HIT
-async function isPageCached(pageNumber) {
+async function readCachedDetailPage(index) {
+    const file = detailCacheFile(index);
+
     try {
-        await fs.access(cacheFileForPage(pageNumber));
-        return true;
+        const html = await fs.readFile(file, "utf8");
+
+        console.log(
+            `CACHE HIT: book-${String(index).padStart(3, "0")}.html`
+        );
+
+        return html;
     } catch {
-        return false;
+        return null;
     }
 }
 
-async function fetchPage(url, pageNumber) {
-    const cachedHtml = await readCachedPage(pageNumber);
+async function fetchDetailPage(url, index) {
+    const cachedHtml = await readCachedDetailPage(index);
 
     if (cachedHtml) {
-        return cachedHtml;
+        return {
+            html: cachedHtml,
+            fromCache: true
+        };
     }
 
     console.log(`FETCH: ${url}`);
@@ -64,46 +84,67 @@ async function fetchPage(url, pageNumber) {
     console.log(`Status: ${response.status}`);
 
     if (!response.ok) {
-        throw new Error(`HTTP ${response.status} for ${url}`);
+        throw new Error(
+            `HTTP ${response.status} for ${url}`
+        );
     }
 
     const html = await response.text();
 
-    await fs.mkdir(CACHE_DIR, { recursive: true });
+    await fs.mkdir(DETAIL_CACHE_DIR, {
+        recursive: true
+    });
 
     await fs.writeFile(
-        cacheFileForPage(pageNumber),
+        detailCacheFile(index),
         html,
         "utf8"
     );
 
     console.log(
-        `Cached: catalogue-page-${pageNumber}.html (${html.length} characters)`
+        `Cached: book-${String(index).padStart(3, "0")}.html`
     );
 
-    return html;
+    return {
+        html,
+        fromCache: false
+    };
 }
 
-function extractBookUrls(html, pageUrl) {
+/**
+ * Extract book URLs from one catalogue page.
+ */
+function extractBookEntries(html, pageUrl) {
     const $ = cheerio.load(html);
 
-    const urls = [];
+    const entries = [];
 
-    $("article.product_pod h3 a").each((index, element) => {
-        const href = $(element).attr("href");
+    $("article.product_pod h3 a").each(
+        (index, element) => {
+            const href = $(element).attr("href");
 
-        if (!href) {
-            return;
+            if (!href) {
+                return;
+            }
+
+            const productUrl = new URL(
+                href,
+                pageUrl
+            ).href;
+
+            entries.push({
+                productUrl,
+                sourcePage: pageUrl
+            });
         }
+    );
 
-        const absoluteUrl = new URL(href, pageUrl).href;
-
-        urls.push(absoluteUrl);
-    });
-
-    return urls;
+    return entries;
 }
 
+/**
+ * Find the next catalogue page.
+ */
 function findNextUrl(html, currentPageUrl) {
     const $ = cheerio.load(html);
 
@@ -113,76 +154,271 @@ function findNextUrl(html, currentPageUrl) {
         return null;
     }
 
-    return new URL(nextHref, currentPageUrl).href;
+    return new URL(
+        nextHref,
+        currentPageUrl
+    ).href;
 }
 
-async function discoverCatalogue() {
-    await fs.mkdir(CACHE_DIR, { recursive: true });
-
+/**
+ * Discover the 60 book URLs from the
+ * three cached catalogue pages.
+ */
+async function discoverBookEntries() {
     let currentUrl = FIRST_PAGE_URL;
     let pageNumber = 1;
 
-    const cataloguePages = [];
-    const discoveredUrls = [];
+    const entries = [];
 
-    while (currentUrl && pageNumber <= 3) {
-        const html = await fetchPage(
-            currentUrl,
-            pageNumber
-        );
+    while (
+        currentUrl &&
+        pageNumber <= 3
+    ) {
+        const html =
+            await readCachedCataloguePage(
+                pageNumber
+            );
 
-        cataloguePages.push(currentUrl);
+        if (!html) {
+            throw new Error(
+                `Catalogue page ${pageNumber} is not cached. Run Stage 1/2 first.`
+            );
+        }
 
-        const bookUrls = extractBookUrls(
-            html,
-            currentUrl
-        );
+        const pageEntries =
+            extractBookEntries(
+                html,
+                currentUrl
+            );
 
-        discoveredUrls.push(...bookUrls);
+        entries.push(...pageEntries);
 
-        console.log(
-            `Page ${pageNumber}: discovered ${bookUrls.length} books`
-        );
-
-        const nextUrl = findNextUrl(
-            html,
-            currentUrl
-        );
+        const nextUrl =
+            findNextUrl(
+                html,
+                currentUrl
+            );
 
         if (!nextUrl) {
             break;
         }
 
-        pageNumber++;
-
-        // Wait only before a real network request.
-        // Cached pages do not need the delay.
-        if (pageNumber <= 3) {
-            const isCached = await isPageCached(pageNumber);
-
-            if (!isCached) {
-                await sleep(DELAY_MS);
-            }
-        }
-
         currentUrl = nextUrl;
+        pageNumber++;
     }
 
-    const uniqueUrls = [...new Set(discoveredUrls)];
+    // Remove duplicate product URLs while
+    // keeping the first source page.
+    const uniqueEntries = [];
+    const seen = new Set();
 
-    console.log("");
-    console.log(`catalogue_pages=${cataloguePages.length}`);
-    console.log(`discovered=${discoveredUrls.length}`);
-    console.log(`unique_urls=${uniqueUrls.length}`);
+    for (const entry of entries) {
+        if (!seen.has(entry.productUrl)) {
+            seen.add(entry.productUrl);
+            uniqueEntries.push(entry);
+        }
+    }
+
+    return uniqueEntries;
+}
+
+/**
+ * Extract a table value from the product
+ * information section.
+ */
+function extractTableValue($, label) {
+    let value = null;
+
+    $("table.table-striped tr").each(
+        (index, row) => {
+            const key = $(row)
+                .find("th")
+                .first()
+                .text()
+                .trim();
+
+            if (key === label) {
+                value = $(row)
+                    .find("td")
+                    .first()
+                    .text()
+                    .trim();
+            }
+        }
+    );
+
+    return value;
+}
+
+/**
+ * Extract the raw record from one book page.
+ */
+function extractRawRecord(
+    html,
+    productUrl,
+    sourcePage
+) {
+    const $ = cheerio.load(html);
+
+    const title =
+        $("div.product_main h1")
+            .first()
+            .text()
+            .trim();
+
+    const priceText =
+        $("div.product_main .price_color")
+            .first()
+            .text()
+            .trim();
+
+    const availabilityText =
+        $("div.product_main .availability")
+            .first()
+            .text()
+            .replace(/\s+/g, " ")
+            .trim();
+
+    const ratingElement =
+        $("div.product_main p.star-rating")
+            .first();
+
+    let ratingText = null;
+
+    if (ratingElement.length) {
+        const classes =
+            ratingElement.attr("class") || "";
+
+        const ratingClass =
+            classes
+                .split(/\s+/)
+                .find(
+                    className =>
+                        className !== "star-rating"
+                );
+
+        ratingText = ratingClass || null;
+    }
+
+    const descriptionElement =
+        $("#product_description")
+            .next("p");
+
+    const description =
+        descriptionElement.length
+            ? descriptionElement.text().trim()
+            : null;
+
+    const upc =
+        extractTableValue($, "UPC");
 
     return {
-        cataloguePages,
-        discoveredUrls,
-        uniqueUrls
+        title,
+        product_url: productUrl,
+        price_text: priceText,
+        availability_text: availabilityText,
+        rating_text: ratingText,
+        description,
+        source_page: sourcePage,
+        fetched_at: new Date().toISOString(),
+        upc
     };
 }
 
-discoverCatalogue().catch(error => {
-    console.error("Discovery failed:", error.message);
+/**
+ * Extract all 60 book records.
+ */
+async function extractBookDetails() {
+    const entries =
+        await discoverBookEntries();
+
+    console.log(
+        `Discovered ${entries.length} unique book URLs`
+    );
+
+    if (entries.length !== 60) {
+        throw new Error(
+            `Expected 60 book URLs, found ${entries.length}`
+        );
+    }
+
+    const records = [];
+
+    let detailPages = 0;
+
+    for (
+        let i = 0;
+        i < entries.length;
+        i++
+    ) {
+        const entry = entries[i];
+
+        const index = i + 1;
+
+        // Check whether the detail page is
+        // already cached before deciding to wait.
+        const cached =
+            await readCachedDetailPage(index);
+
+        let html;
+
+        if (cached) {
+            html = cached;
+        } else {
+            // Real request: wait at least 500 ms.
+            await sleep(DELAY_MS);
+
+            const result =
+                await fetchDetailPage(
+                    entry.productUrl,
+                    index
+                );
+
+            html = result.html;
+        }
+
+        const record =
+            extractRawRecord(
+                html,
+                entry.productUrl,
+                entry.sourcePage
+            );
+
+        records.push(record);
+
+        detailPages++;
+
+        console.log(
+            `Extracted ${detailPages}/60`
+        );
+    }
+
+    console.log("");
+    console.log(
+        "First complete raw record:"
+    );
+
+    console.log(
+        JSON.stringify(
+            records[0],
+            null,
+            2
+        )
+    );
+
+    console.log("");
+    console.log(
+        `detail_pages=${detailPages}`
+    );
+
+    return records;
+}
+
+extractBookDetails().catch(error => {
+    console.error(
+        "Stage 3 failed:",
+        error.message
+    );
+
     process.exit(1);
 });
