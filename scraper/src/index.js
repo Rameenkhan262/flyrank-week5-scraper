@@ -8,6 +8,10 @@ const FIRST_PAGE_URL =
 
 const CACHE_DIR = path.join(__dirname, "../cache");
 const DETAIL_CACHE_DIR = path.join(CACHE_DIR, "details");
+const OUTPUT_DIR = path.join(__dirname, "../output");
+
+const BOOKS_FILE = path.join(OUTPUT_DIR, "books.json");
+const ERRORS_FILE = path.join(OUTPUT_DIR, "errors.json");
 
 const USER_AGENT = "FlyRankInternship-A9/1.0";
 const DELAY_MS = 500;
@@ -207,8 +211,7 @@ async function discoverBookEntries() {
         pageNumber++;
     }
 
-    // Remove duplicate product URLs while
-    // keeping the first source page.
+    // Remove duplicate product URLs.
     const uniqueEntries = [];
     const seen = new Set();
 
@@ -326,6 +329,340 @@ function extractRawRecord(
 }
 
 /**
+ * Convert price text such as:
+ * £51.77
+ *
+ * into:
+ * 51.77
+ */
+function normalizePrice(priceText) {
+    if (!priceText) {
+        return null;
+    }
+
+    const match = priceText.match(
+        /£\s*([0-9]+(?:\.[0-9]+)?)/
+    );
+
+    if (!match) {
+        return null;
+    }
+
+    return Number(match[1]);
+}
+
+/**
+ * Convert rating text such as:
+ * One
+ * Two
+ * Three
+ * Four
+ * Five
+ *
+ * into an integer.
+ */
+function normalizeRating(ratingText) {
+    const ratings = {
+        One: 1,
+        Two: 2,
+        Three: 3,
+        Four: 4,
+        Five: 5
+    };
+
+    return ratings[ratingText] ?? null;
+}
+
+/**
+ * Convert availability text such as:
+ * In stock (22 available)
+ *
+ * into:
+ * {
+ *   in_stock: true,
+ *   count: 22
+ * }
+ */
+function normalizeAvailability(
+    availabilityText
+) {
+    if (!availabilityText) {
+        return {
+            in_stock: false,
+            count: 0
+        };
+    }
+
+    const normalized =
+        availabilityText
+            .replace(/\s+/g, " ")
+            .trim();
+
+    const inStock =
+        normalized
+            .toLowerCase()
+            .includes("in stock");
+
+    const countMatch =
+        normalized.match(
+            /\((\d+)\s+available\)/
+        );
+
+    const count =
+        countMatch
+            ? Number(countMatch[1])
+            : 0;
+
+    return {
+        in_stock: inStock,
+        count
+    };
+}
+
+/**
+ * Normalize one raw record.
+ */
+function normalizeRecord(raw) {
+    return {
+        title: raw.title || null,
+
+        product_url: raw.product_url,
+
+        price_gbp:
+            normalizePrice(
+                raw.price_text
+            ),
+
+        availability:
+            normalizeAvailability(
+                raw.availability_text
+            ),
+
+        rating:
+            normalizeRating(
+                raw.rating_text
+            ),
+
+        description:
+            raw.description || null,
+
+        upc: raw.upc || null,
+
+        source_page:
+            raw.source_page,
+
+        fetched_at:
+            raw.fetched_at
+    };
+}
+
+/**
+ * Validate one normalized record.
+ */
+function validateRecord(record) {
+    const errors = [];
+
+    if (
+        !record.title ||
+        typeof record.title !== "string"
+    ) {
+        errors.push(
+            "title is missing or invalid"
+        );
+    }
+
+    if (
+        typeof record.product_url !== "string"
+    ) {
+        errors.push(
+            "product_url is missing"
+        );
+    } else {
+        try {
+            const url =
+                new URL(
+                    record.product_url
+                );
+
+            if (
+                url.protocol !== "https:"
+            ) {
+                errors.push(
+                    "product_url must use HTTPS"
+                );
+            }
+        } catch {
+            errors.push(
+                "product_url is not a valid URL"
+            );
+        }
+    }
+
+    if (
+        typeof record.price_gbp !== "number" ||
+        !Number.isFinite(
+            record.price_gbp
+        )
+    ) {
+        errors.push(
+            "price_gbp must be a number"
+        );
+    }
+
+    if (
+        !record.availability ||
+        typeof record.availability
+            .in_stock !== "boolean"
+    ) {
+        errors.push(
+            "availability.in_stock must be boolean"
+        );
+    }
+
+    if (
+        !record.availability ||
+        !Number.isInteger(
+            record.availability.count
+        ) ||
+        record.availability.count < 0
+    ) {
+        errors.push(
+            "availability.count must be a non-negative integer"
+        );
+    }
+
+    if (
+        !Number.isInteger(
+            record.rating
+        ) ||
+        record.rating < 1 ||
+        record.rating > 5
+    ) {
+        errors.push(
+            "rating must be an integer from 1 to 5"
+        );
+    }
+
+    if (
+        !record.upc ||
+        typeof record.upc !== "string"
+    ) {
+        errors.push(
+            "upc is missing or invalid"
+        );
+    }
+
+    return errors;
+}
+
+/**
+ * Normalize and validate all records.
+ */
+async function normalizeAndValidate(
+    rawRecords
+) {
+    const validRecords = [];
+    const errors = [];
+    const seenUrls = new Set();
+
+    for (
+        let i = 0;
+        i < rawRecords.length;
+        i++
+    ) {
+        const raw = rawRecords[i];
+
+        const record =
+            normalizeRecord(raw);
+
+        const recordErrors =
+            validateRecord(record);
+
+        // Check duplicate product URLs.
+        if (
+            seenUrls.has(
+                record.product_url
+            )
+        ) {
+            recordErrors.push(
+                "duplicate product_url"
+            );
+        }
+
+        if (recordErrors.length === 0) {
+            seenUrls.add(
+                record.product_url
+            );
+
+            validRecords.push(
+                record
+            );
+        } else {
+            errors.push({
+                product_url:
+                    record.product_url,
+                errors: recordErrors
+            });
+        }
+    }
+
+    await fs.mkdir(
+        OUTPUT_DIR,
+        {
+            recursive: true
+        }
+    );
+
+    await fs.writeFile(
+        BOOKS_FILE,
+        JSON.stringify(
+            validRecords,
+            null,
+            2
+        ),
+        "utf8"
+    );
+
+    await fs.writeFile(
+        ERRORS_FILE,
+        JSON.stringify(
+            errors,
+            null,
+            2
+        ),
+        "utf8"
+    );
+
+    console.log("");
+    console.log(
+        `valid_records=${validRecords.length}`
+    );
+
+    console.log(
+        `invalid_records=${errors.length}`
+    );
+
+    console.log(
+        `books.json=${BOOKS_FILE}`
+    );
+
+    console.log(
+        `errors.json=${ERRORS_FILE}`
+    );
+
+    if (validRecords.length !== 60) {
+        throw new Error(
+            `Expected 60 valid records, found ${validRecords.length}`
+        );
+    }
+
+    return {
+        validRecords,
+        errors
+    };
+}
+
+/**
  * Extract all 60 book records.
  */
 async function extractBookDetails() {
@@ -355,17 +692,16 @@ async function extractBookDetails() {
 
         const index = i + 1;
 
-        // Check whether the detail page is
-        // already cached before deciding to wait.
         const cached =
-            await readCachedDetailPage(index);
+            await readCachedDetailPage(
+                index
+            );
 
         let html;
 
         if (cached) {
             html = cached;
         } else {
-            // Real request: wait at least 500 ms.
             await sleep(DELAY_MS);
 
             const result =
@@ -414,9 +750,31 @@ async function extractBookDetails() {
     return records;
 }
 
-extractBookDetails().catch(error => {
+/**
+ * Main Stage 4 flow.
+ */
+async function main() {
+    const rawRecords =
+        await extractBookDetails();
+
+    const result =
+        await normalizeAndValidate(
+            rawRecords
+        );
+
+    console.log("");
+    console.log(
+        "Stage 4 completed successfully."
+    );
+
+    console.log(
+        `books.json contains ${result.validRecords.length} records.`
+    );
+}
+
+main().catch(error => {
     console.error(
-        "Stage 3 failed:",
+        "Stage 4 failed:",
         error.message
     );
 

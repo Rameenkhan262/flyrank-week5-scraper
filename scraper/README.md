@@ -109,3 +109,26 @@ The scraper successfully extracted all 60 book detail pages.
 ![Stage 3](evidence/stage3-deatails_2.png)
 
 ![Stage 3](evidence/stage3-deatails_3.png)
+
+
+## Stage 4 – Normalize and Validate
+
+The raw book records from Stage 3 are normalized into a consistent
+schema and validated before being written to JSON.
+
+Normalization includes:
+
+- Converting GBP price text into a numeric `price_gbp` value
+- Converting rating words into integers from 1 to 5
+- Converting availability text into `in_stock` and `count`
+- Preserving missing descriptions as `null`
+- Ensuring product URLs are absolute HTTPS URLs
+- Checking for duplicate product URLs
+
+Validated records are written to `output/books.json`.
+
+Validation errors are written to `output/errors.json`.
+
+### Results
+
+![Stage 4](evidence/stage4-validation.png)
