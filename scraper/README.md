@@ -132,3 +132,26 @@ Validation errors are written to `output/errors.json`.
 ### Results
 
 ![Stage 4](evidence/stage4-validation.png)
+
+
+## Stage 5 – Failure Handling and Run Reporting
+
+The scraper handles individual page failures without terminating the
+entire run.
+
+### Failure Handling
+
+- HTTP 5xx errors are retried once.
+- Request timeouts are retried once.
+- HTTP 403 and 404 errors are not retried.
+- If a page still fails, it is skipped and recorded in the run report.
+- Remaining pages continue to be processed.
+
+### Run Report
+
+Each run generates:
+
+```text
+output/run-report.json
+
+![Stage 5 Failure Test](evidence/stage5-failure-test.png)

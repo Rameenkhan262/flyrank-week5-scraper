@@ -16,6 +16,15 @@ const ERRORS_FILE = path.join(OUTPUT_DIR, "errors.json");
 const USER_AGENT = "FlyRankInternship-A9/1.0";
 const DELAY_MS = 500;
 
+const runStats = {
+    start_time: new Date().toISOString(),
+    pages_fetched: 0,
+    cache_hits: 0,
+    valid_records: 0,
+    invalid_records: 0,
+    failed_pages: 0
+};
+
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -60,11 +69,84 @@ async function readCachedDetailPage(index) {
             `CACHE HIT: book-${String(index).padStart(3, "0")}.html`
         );
 
+        runStats.cache_hits++;
+
         return html;
     } catch {
         return null;
     }
 }
+
+async function fetchWithRetry(url) {
+    let attempt = 1;
+
+    while (attempt <= 2) {
+        try {
+            const response = await fetch(url, {
+                headers: {
+                    "User-Agent": USER_AGENT
+                },
+                signal: AbortSignal.timeout(5000)
+            });
+
+            console.log(
+                `Status: ${response.status} (attempt ${attempt})`
+            );
+
+            if (response.ok) {
+                return response;
+            }
+
+            // Retry only timeout/5xx-type failures.
+            if (
+                response.status >= 500 &&
+                response.status <= 599 &&
+                attempt === 1
+            ) {
+                console.log(
+                    "Server error. Retrying once..."
+                );
+
+                await sleep(DELAY_MS);
+
+                attempt++;
+                continue;
+            }
+
+            // Do not retry 403, 404, or other
+            // non-retryable HTTP errors.
+            throw new Error(
+                `HTTP ${response.status} for ${url}`
+            );
+
+        } catch (error) {
+
+            if (
+                attempt === 1 &&
+                (
+                    error.name === "TimeoutError" ||
+                    error.name === "AbortError"
+                )
+            ) {
+                console.log(
+                    "Request timed out. Retrying once..."
+                );
+
+                await sleep(DELAY_MS);
+
+                attempt++;
+                continue;
+            }
+
+            throw error;
+        }
+    }
+
+    throw new Error(
+        `Request failed after retry: ${url}`
+    );
+}
+
 
 async function fetchDetailPage(url, index) {
     const cachedHtml = await readCachedDetailPage(index);
@@ -78,22 +160,12 @@ async function fetchDetailPage(url, index) {
 
     console.log(`FETCH: ${url}`);
 
-    const response = await fetch(url, {
-        headers: {
-            "User-Agent": USER_AGENT
-        },
-        signal: AbortSignal.timeout(5000)
-    });
-
-    console.log(`Status: ${response.status}`);
-
-    if (!response.ok) {
-        throw new Error(
-            `HTTP ${response.status} for ${url}`
-        );
-    }
+    const response =
+    await fetchWithRetry(url);
 
     const html = await response.text();
+
+    runStats.pages_fetched++;
 
     await fs.mkdir(DETAIL_CACHE_DIR, {
         recursive: true
@@ -679,29 +751,31 @@ async function extractBookDetails() {
         );
     }
 
+    
+
     const records = [];
 
     let detailPages = 0;
 
     for (
-        let i = 0;
-        i < entries.length;
-        i++
-    ) {
-        const entry = entries[i];
+    let i = 0;
+    i < entries.length;
+    i++
+) {
+    const entry = entries[i];
 
-        const index = i + 1;
+    const index = i + 1;
 
+    try {
         const cached =
-            await readCachedDetailPage(
-                index
-            );
+            await readCachedDetailPage(index);
 
         let html;
 
         if (cached) {
             html = cached;
         } else {
+            // Real request: wait at least 500 ms.
             await sleep(DELAY_MS);
 
             const result =
@@ -727,7 +801,23 @@ async function extractBookDetails() {
         console.log(
             `Extracted ${detailPages}/60`
         );
+
+    } catch (error) {
+
+        runStats.failed_pages++;
+
+        console.error(
+            `FAILED: ${entry.productUrl}`
+        );
+
+        console.error(
+            `Reason: ${error.message}`
+        );
+
+        // Continue with the next book.
+        continue;
     }
+}
 
     console.log("");
     console.log(
@@ -750,6 +840,40 @@ async function extractBookDetails() {
     return records;
 }
 
+async function writeRunReport(validRecords, invalidRecords) {
+    const startTime = new Date(runStats.start_time);
+    const endTime = new Date();
+
+    const durationMs =
+        endTime.getTime() - startTime.getTime();
+
+    const report = {
+        start_time: runStats.start_time,
+        duration_ms: durationMs,
+        pages_fetched: runStats.pages_fetched,
+        cache_hits: runStats.cache_hits,
+        valid_records: validRecords,
+        invalid_records: invalidRecords,
+        failed_pages: runStats.failed_pages
+    };
+
+    await fs.mkdir(OUTPUT_DIR, {
+        recursive: true
+    });
+
+    await fs.writeFile(
+        path.join(OUTPUT_DIR, "run-report.json"),
+        JSON.stringify(report, null, 2),
+        "utf8"
+    );
+
+    console.log("");
+    console.log("Run report:");
+    console.log(
+        JSON.stringify(report, null, 2)
+    );
+}
+
 /**
  * Main Stage 4 flow.
  */
@@ -762,9 +886,20 @@ async function main() {
             rawRecords
         );
 
+    runStats.valid_records =
+        result.validRecords.length;
+
+    runStats.invalid_records =
+        result.errors.length;
+
+    await writeRunReport(
+        result.validRecords.length,
+        result.errors.length
+    );
+
     console.log("");
     console.log(
-        "Stage 4 completed successfully."
+        "Stage 5 completed successfully."
     );
 
     console.log(
