@@ -156,4 +156,4 @@ Each run generates:
 output/run-report.json
 ```
 
-![Stage 5 Failure Test](evidence/stage5-failure-run.png)
+![Stage 5 Failure Test](evidence/stage5-final-run.png)
