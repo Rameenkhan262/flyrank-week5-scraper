@@ -36,6 +36,26 @@ https://books.toscrape.com/
 
 No unrelated websites or targets will be accessed.
 
+## Running the Scraper
+
+Install dependencies and run the scraper with:
+
+```text
+npm install
+node src/index.js
+```
+
+The scraper follows these politeness rules:
+
+- Uses the descriptive User-Agent `FlyRankInternship-A9/1.0`.
+- Waits at least 500 ms between requests.
+- Uses a request timeout to avoid hanging indefinitely.
+- Checks HTTP response status before processing a page.
+- Retries a timeout or HTTP 5xx response once.
+- Does not retry HTTP 403 or 404 responses.
+- Uses the local cache during development to avoid repeatedly requesting the same pages.
+
+
 ## Evidence
 
 ### robots.txt Request
@@ -55,7 +75,7 @@ The request uses a descriptive User-Agent and checks the HTTP response status be
 
 The returned HTML is cached locally as:
 
-`cache/page-1.html`
+`cache/catalogue-page-1.html`
 
 The cached file is excluded from Git using `.gitignore`.
 
@@ -152,8 +172,13 @@ entire run.
 
 Each run generates:
 
-```text
-output/run-report.json
-```
 
 ![Stage 5 Failure Test](evidence/stage5-final-run.png)
+
+## Ethics and Limitations
+
+The scraper is limited to the assigned practice website and collects only the information required for the assignment.
+
+If an official API exists for a target, it should be preferred over scraping. This scraper does not attempt to bypass logins, paywalls, access restrictions, or other blocks.
+
+One limitation is that the target's `robots.txt` URL returned `404 Not Found`, so no robots.txt rules were available to interpret from that endpoint. The scraper therefore remains limited to the assigned target and the required catalogue/detail pages.
