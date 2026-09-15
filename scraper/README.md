@@ -105,11 +105,11 @@ The scraper successfully extracted all 60 book detail pages.
 
 ### Results
 
-![Stage 3](evidence/stage3-deatails_1.png)
+![Stage 3](evidence/stage3-details_1.png)
 
-![Stage 3](evidence/stage3-deatails_2.png)
+![Stage 3](evidence/stage3-details_2.png)
 
-![Stage 3](evidence/stage3-deatails_3.png)
+![Stage 3](evidence/stage3-details_3.png)
 
 
 ## Stage 4 – Normalize and Validate
@@ -156,4 +156,4 @@ Each run generates:
 output/run-report.json
 ```
 
-![Stage 5 Failure Test](evidence/stage5-failure-test.png)
+![Stage 5 Failure Test](evidence/stage5-failure-run.png)
