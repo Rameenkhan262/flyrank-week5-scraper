@@ -79,6 +79,7 @@ Duplicate URLs are removed before continuing.
 catalogue_pages=3
 discovered=60
 unique_urls=60
+```
 
 
 ## Stage 3 – Extract Book Details
@@ -153,5 +154,6 @@ Each run generates:
 
 ```text
 output/run-report.json
+```
 
 ![Stage 5 Failure Test](evidence/stage5-failure-test.png)
